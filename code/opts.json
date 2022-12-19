@@ -1,0 +1,25 @@
+{
+  "filepath": {
+    "data": "D:\\Lab\\CNN-Project\\data\\",
+    "output": "D:\\Lab\\CNN-Project\\output\\",
+    "code": "D:\\Lab\\CNN-Project\\code\\",
+    "volumes": "D:\\Lab\\CNN-Project\\data\\"
+  },
+  "scan": {
+    "size_w": 160,
+    "size_h": 160,
+    "l_r_indices": [5, 165],
+    "p_a_indices": [84, 99],
+    "i_s_indices": [4, 164],
+    "slice_offset": 3,
+    "image_count": 5,
+    "use_hipp_vol": true,
+    "use_icv_adj_hipp": false,
+    "use_asym": false
+  },
+  "split": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  }
+}
