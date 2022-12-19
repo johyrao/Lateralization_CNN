@@ -21,7 +21,7 @@ def load_opt(filepath):
         return json.load(f)
 
 
-def load_brain_with_vol(dir_path, dir_list, opt):
+def load_brains(dir_path, dir_list, opt):
 
     image_count = opt["scan"]["image_count"]
     use_hipp = opt["scan"]["use_hipp_vol"]
@@ -269,13 +269,14 @@ def load_log_dataset(data_l, data_r, opt):
 def summarize_diagnostics(histories, exp, opt):
 
     for i in range(len(histories)):
+
         # plot loss
         plt.subplot(2, 1, 1)
         plt.title('Cross Entropy Loss')
         plt.plot(histories[i].history['loss'], color='blue', label='train')
         plt.plot(histories[i].history['val_loss'], color='orange', label='test')
 
-        # plot accuary
+        # plot accuracy
         plt.subplot(2, 1, 2)
         plt.title('Classification Accuracy')
         plt.plot(histories[i].history['accuracy'], color='blue', label='train')

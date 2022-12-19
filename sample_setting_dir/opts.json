@@ -1,0 +1,28 @@
+{
+  "filepath": {
+    "data": "path_to_dir",
+    "output": "path_to_dir",
+    "code": "path_to_dir",
+    "images": "path_to_dir",
+    "volumes": "path_to_dir",
+    "figures": "path_to_dir",
+    "models": "path_to_dir"
+  },
+  "scan": {
+    "size_w": 160,
+    "size_h": 160,
+    "l_r_indices": [0, 160],
+    "p_a_indices": [0, 15],
+    "i_s_indices": [0, 160],
+    "slice_offset": 3,
+    "image_count": 5,
+    "use_hipp_vol": true,
+    "use_icv_adj_hipp": true,
+    "use_asym": true
+  },
+  "split": {
+    "train": 0.7,
+    "val": 0.2,
+    "test": 0.1
+  }
+}
