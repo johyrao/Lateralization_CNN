@@ -9,20 +9,20 @@ from tensorflow.keras.utils import to_categorical
 
 
 def normalization(array):
-
     norm_arr = (array - np.nanmin(array))/(np.nanmax(array) - np.nanmin(array))
 
     return norm_arr
 
 
 def load_opt(filepath):
-
     with open(filepath, "r") as f:
         return json.load(f)
 
 
-def load_brains(dir_path, dir_list, opt):
-
+def load_brains(side, opt):
+    dir_list = opt["sites"]["site_list"]
+    image_path = opt["filepath"]["images"]
+    vol_path = opt["filepath"]["volumes"]
     image_count = opt["scan"]["image_count"]
     use_hipp = opt["scan"]["use_hipp_vol"]
     use_icv = opt["scan"]["use_icv_adj_hipp"]
@@ -45,8 +45,7 @@ def load_brains(dir_path, dir_list, opt):
     vol_vect = np.empty(shape=(0, 2))
 
     for d in dir_list:
-
-        dir_path_full = dir_path + d
+        dir_path_full = image_path + side + "\\" + d
         print(dir_path_full)
 
         filename = ""
@@ -55,12 +54,11 @@ def load_brains(dir_path, dir_list, opt):
         vols = np.zeros(shape=(num_files, 2))
 
         for (root, dirs, files) in os.walk(dir_path_full):
-
             num_files = len(files)  # get number of files in the dir
 
             for i in range(num_files):
                 filename = files[i]
-                img = nib.load(dir_path_full + "/" + files[i]).get_fdata()  # load the subject brain
+                img = nib.load(dir_path_full + "\\" + files[i]).get_fdata()  # load the subject brain
                 brains[i, :, :image_count, :] = img[l_ind:r_ind, p_ind:a_ind:offset, i_ind:s_ind]
 
         brains[brains == 0] = np.nan
@@ -69,9 +67,8 @@ def load_brains(dir_path, dir_list, opt):
         norm_brains[np.isnan(norm_brains)] = 0
 
         if extra > 0:
-
             # Load volumes
-            file_path_vol = dir_path + '../stats/icv_vol_' + d + '.csv'
+            file_path_vol = vol_path + side + "\\" + 'icv_vol_' + d + '.csv'
             print(file_path_vol)
 
             df_vol = pd.read_csv(file_path_vol)
@@ -82,7 +79,6 @@ def load_brains(dir_path, dir_list, opt):
             s = image_count
 
             for i in range(num_files):
-
                 slice1 = np.full((w, h), hipp_l[i])
                 slice2 = np.full((w, h), hipp_r[i])
 
@@ -113,14 +109,13 @@ def load_brains(dir_path, dir_list, opt):
     return filenames, brains_comb, vol_vect
 
 
-def load_img(brains, side, opt, img_slice):
-
+def load_img(images, side, opt, img_slice):
     w = opt["scan"]["size_w"]
     h = opt["scan"]["size_h"]
 
-    val_ct = math.floor(brains.shape[0] * opt["split"]["val"])
-    test_ct = math.ceil(brains.shape[0] * opt["split"]["test"])
-    train_ct = brains.shape[0] - val_ct - test_ct
+    val_ct = math.floor(images.shape[0] * opt["split"]["val"])
+    test_ct = math.ceil(images.shape[0] * opt["split"]["test"])
+    train_ct = images.shape[0] - val_ct - test_ct
     pretest_ct = train_ct + val_ct
 
     # Create the train_x and train_y
@@ -136,36 +131,33 @@ def load_img(brains, side, opt, img_slice):
     test_y = np.empty(shape=test_ct)
 
     for i in range(train_ct):
-        img = brains[i, :, img_slice, :]
+        img = images[i, :, img_slice, :]
 
         train_x[i] = img
         train_y[i] = side
 
-    a = 0
-    for j in range(train_ct, pretest_ct):
-        img = brains[j, :, img_slice, :]
+    for count, j in enumerate(range(train_ct, pretest_ct)):
+        img = images[j, :, img_slice, :]
 
-        val_x[a] = img
-        val_y[a] = side
-        a += 1
+        val_x[count] = img
+        val_y[count] = side
 
-    b = 0
-    for k in range(pretest_ct, brains.shape[0]):
-        img = brains[k, :, img_slice, :]
+    for count, k in enumerate(range(pretest_ct, images.shape[0])):
+        img = images[k, :, img_slice, :]
 
-        test_x[b] = img
-        test_y[b] = side
-        b += 1
+        test_x[count] = img
+        test_y[count] = side
 
     return train_x, train_y, val_x, val_y, test_x, test_y
 
 
-def load_dataset(brains_l, brains_r, opt):
-
+def load_dataset(data, opt):
     image_count = opt["scan"]["image_count"]
     use_hipp = opt["scan"]["use_hipp_vol"]
     use_icv = opt["scan"]["use_icv_adj_hipp"]
     use_asym = opt["scan"]["use_icv_adj_hipp"]
+    w = opt["scan"]["size_w"]
+    h = opt["scan"]["size_h"]
 
     channel_vect = np.arange(image_count)
     s = image_count
@@ -184,36 +176,40 @@ def load_dataset(brains_l, brains_r, opt):
         s += 1
 
     train_x, val_x, test_x = list(), list(), list()
-    train_y_brain, val_y_brain, test_y_brain = list(), list(), list()
+    train_x_img = np.empty(shape=(0, w, h))
+    val_x_img = np.empty(shape=(0, w, h))
+    test_x_img = np.empty(shape=(0, w, h))
+    train_y_img = np.empty(shape=0)
+    val_y_img = np.empty(shape=0)
+    test_y_img = np.empty(shape=0)
 
     for i in channel_vect:
         count = 0
-        train_x_l, train_y_l, val_x_l, val_yl, test_x_l, test_y_l = load_img(brains_l, 0, opt, i)
-        train_x_r, train_y_r, val_x_r, val_y_r, test_x_r, test_y_r = load_img(brains_r, 1, opt, i)
+        for grp_num, grp_data in enumerate(data):
+            train_x_grp, train_y_grp, val_x_grp, val_y_grp, test_x_grp, test_y_grp = load_img(grp_data, grp_num, opt, i)
 
-        train_x_brain = np.concatenate((train_x_l, train_x_r))
-        val_x_brain = np.concatenate((val_x_l, val_x_r))
-        test_x_brain = np.concatenate((test_x_l, test_x_r))
-        train_x.append(train_x_brain)
-        val_x.append(val_x_brain)
-        test_x.append(test_x_brain)
+            train_x_img = np.concatenate((train_x_img, train_x_grp))
+            val_x_img = np.concatenate((val_x_img, val_x_grp))
+            test_x_img = np.concatenate((test_x_img, test_x_grp))
 
-        if count == 0:
+            if count == 0:
+                train_y_img = to_categorical(np.concatenate((train_y_img, train_y_grp)))
+                val_y_img = to_categorical(np.concatenate((val_y_img, val_y_grp)))
+                test_y_img = to_categorical(np.concatenate((test_y_img, test_y_grp)))
 
-            train_y_brain = to_categorical(np.concatenate((train_y_l, train_y_r)))
-            val_y_brain = to_categorical(np.concatenate((val_yl, val_y_r)))
-            test_y_brain = to_categorical(np.concatenate((test_y_l, test_y_r)))
-            count += 1
+        train_x.append(train_x_img)
+        val_x.append(val_x_img)
+        test_x.append(test_x_img)
+        count += 1
 
     train_x_final = np.stack(train_x, axis=3)
     val_x_final = np.stack(val_x, axis=3)
     test_x_final = np.stack(test_x, axis=3)
 
-    return train_x_final, train_y_brain, val_x_final, val_y_brain, test_x_final, test_y_brain
+    return train_x_final, train_y_img, val_x_final, val_y_img, test_x_final, test_y_img
 
 
-def load_data(data, side, opt):
-
+def load_value(data, side, opt):
     val_ct = math.floor(data.shape[0] * opt["split"]["val"])
     test_ct = math.ceil(data.shape[0] * opt["split"]["test"])
     train_ct = data.shape[0] - val_ct - test_ct
@@ -250,39 +246,102 @@ def load_data(data, side, opt):
     return train_x, train_y, val_x, val_y, test_x, test_y
 
 
-def load_log_dataset(data_l, data_r, opt):
+def load_regression_dataset(data, opt):
 
-    train_x_l, train_y_l, val_x_l, val_y_l, test_x_l, test_y_l = load_data(data_l, 0, opt)
-    train_x_r, train_y_r, val_x_r, val_y_r, test_x_r, test_y_r = load_data(data_r, 1, opt)
+    train_x_data = np.empty(shape=(0, 2))
+    val_x_data = np.empty(shape=(0, 2))
+    test_x_data = np.empty(shape=(0, 2))
+    train_y_data = np.empty(shape=0)
+    val_y_data = np.empty(shape=0)
+    test_y_data = np.empty(shape=0)
 
-    train_x_data = np.concatenate((train_x_l, train_x_r))
-    val_x_data = np.concatenate((val_x_l, val_x_r))
-    test_x_data = np.concatenate((test_x_l, test_x_r))
+    for grp_num, grp_data in enumerate(data):
+        train_x_grp, train_y_grp, val_x_grp, val_y_grp, test_x_grp, test_y_grp = load_value(grp_data, grp_num, opt)
 
-    train_y_data = np.concatenate((train_y_l, train_y_r))
-    val_y_data = np.concatenate((val_y_l, val_y_r))
-    test_y_data = np.concatenate((test_y_l, test_y_r))
+        train_x_data = np.concatenate((train_x_data, train_x_grp))
+        val_x_data = np.concatenate((val_x_data, val_x_grp))
+        test_x_data = np.concatenate((test_x_data, test_x_grp))
+
+        train_y_data = np.concatenate((train_y_data, train_y_grp))
+        val_y_data = np.concatenate((val_y_data, val_y_grp))
+        test_y_data = np.concatenate((test_y_data, test_y_grp))
 
     return train_x_data, train_y_data, val_x_data, val_y_data, test_x_data, test_y_data
 
 
-def summarize_diagnostics(histories, exp, opt):
+def plot_training_stats(histories, exp, opt):
+    fig_path = opt["filepath"]["figures"]
 
     for i in range(len(histories)):
-
         # plot loss
         plt.subplot(2, 1, 1)
-        plt.title('Cross Entropy Loss')
-        plt.plot(histories[i].history['loss'], color='blue', label='train')
-        plt.plot(histories[i].history['val_loss'], color='orange', label='test')
+        plt.title("Cross Entropy Loss")
+        plt.plot(histories[i].history["loss"], color="blue", label="train")
+        plt.plot(histories[i].history["val_loss"], color="orange", label="test")
 
         # plot accuracy
         plt.subplot(2, 1, 2)
-        plt.title('Classification Accuracy')
-        plt.plot(histories[i].history['accuracy'], color='blue', label='train')
-        plt.plot(histories[i].history['val_accuracy'], color='orange', label='test')
+        plt.title("Classification Accuracy")
+        plt.plot(histories[i].history["accuracy"], color="blue", label="train")
+        plt.plot(histories[i].history["val_accuracy"], color="orange", label="test")
 
-    hist_filepath = '../figures/' + exp + '/histories.png'
+    hist_filepath = fig_path + exp + "\\histories.png"
     plt.tight_layout()
     plt.savefig(hist_filepath)
-    plt.show()
+
+
+def plot_model_stats(results, exp, opt):
+    fig_path = opt["filepath"]["figures"]
+    run_rand = opt["model"]["random_CNN"]
+    run_log = opt["model"]["logistic_regression"]
+    val = results["val"]
+    test = results["test"]
+
+    # print summary Val
+    val_max = np.max(val, axis=1)
+    print("Val Accuracy (max): mean=%.3f, std=%.3f, n=%d" % (np.mean(val_max) * 100, np.std(val_max) * 100,
+                                                             val.shape[0]))
+
+    # print summary Test (val)
+    test_val = np.zeros(shape=(val.shape[0]))
+    for i in range(val.shape[0]):
+        ind = np.where(val[i, :] == np.max(val[i, :]))
+        test_val[i] = test[i, ind[0][0]]
+    print("Test Accuracy (val): mean=%.3f, std=%.3f, n=%d" % (np.mean(test_val) * 100, np.std(test_val) * 100,
+                                                              test.shape[0]))
+
+    # print summary Test (50)
+    test_50 = np.zeros(shape=(test.shape[0]))
+    for i in range(test.shape[0]):
+        test_50[i] = test[i, 49]
+    print("Test Accuracy (50): mean=%.3f, std=%.3f, n=%d" % (np.mean(test_50) * 100, np.std(test_50) * 100,
+                                                             test.shape[0]))
+
+    data = {"CNN (val)": test_val, "CNN (50)": test_50}
+
+    if run_rand:
+        # print summary Random Model
+        rand = results["random_CNN"]
+        rand_50 = np.zeros(shape=(rand.shape[0]))
+
+        for i in range(rand.shape[0]):
+            rand_50[i] = rand[i, 49]
+        print("Test Accuracy (rand): mean=%.3f, std=%.3f, n=%d" % (np.mean(rand_50)*100, np.std(rand_50)*100,
+                                                                   rand.shape[0]))
+
+        data["Random Model"] = rand_50
+
+    if run_log:
+        # print summary Logistic Regression
+        log = results["logistic_regression"]
+
+        print("Test Accuracy (log): mean=%.3f, std=%.3f, n=%d" % (np.mean(log)*100, np.std(log)*100, log.shape[0]))
+
+        data["Logistic Regression"] = log
+
+    fig, ax = plt.subplots()
+    acc_filepath = fig_path + exp + "\\acc_boxplot.png"
+    ax.boxplot(data.values())
+    plt.title("Accuracies of Different Models")
+    ax.set_xticklabels(data.keys())
+    plt.savefig(acc_filepath)
