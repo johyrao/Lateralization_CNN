@@ -1,28 +1,56 @@
 import argparse
 import math
+import numpy as np
 from functions import load_opt, load_brains, load_dataset, plot_model_stats, plot_training_stats
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 
 def train(exp_name, slice_num, img_data, vol_data, opt):
+    image_count = opt["scan"]["image_count"]
+    use_hipp = opt["scan"]["use_hipp_vol"]
+    use_icv = opt["scan"]["use_icv_adj_hipp"]
+    use_asym = opt["scan"]["use_icv_adj_hipp"]
+    w = opt["scan"]["size_w"]
+    h = opt["scan"]["size_h"]
+    runs = opt["training"]["runs"]
+    run_rand = opt["model"]["random_CNN"]
+    run_log = opt["model"]["logistic_regression"]
+
+    channel_vect = np.arange(image_count)
+    s = image_count
+    if use_hipp:
+        channel_vect = np.append(channel_vect, s)
+        channel_vect = np.append(channel_vect, s + 1)
+        s += 2
+
+    if use_icv:
+        channel_vect = np.append(channel_vect, s)
+        channel_vect = np.append(channel_vect, s + 1)
+        s += 2
+
+    if use_asym:
+        channel_vect = np.append(channel_vect, s)
+        s += 1
+
     channels = len(channel_vect)
     thresholds = np.arange(100) / 100
 
     scores_val = np.zeros(shape=(runs, thresholds.shape[0]))
     scores_test = np.zeros(shape=(runs, thresholds.shape[0]))
-    #     scores_rand = np.zeros(shape=(runs,thresholds.shape[0]))
-    #     scores_log = np.zeros(shape=(runs))
-
     histories = list()
-
     mean_fpr = np.linspace(0, 1, 100)
     fpr_mat, tpr_mat, auc_mat = list(), list(), list()
-    #     fpr_mat_rand, tpr_mat_rand, auc_mat_rand = list(), list(), list()
-    #     fpr_mat_log, tpr_mat_log, auc_mat_log = list(), list(), list()
-
     confusion_mat = np.zeros(shape=(runs, 4))
-    #     confusion_mat_rand = np.zeros(shape=(runs,4))
-    #     confusion_mat_log = np.zeros(shape=(runs,4))
+
+    if run_rand:
+        scores_rand = np.zeros(shape=(runs, thresholds.shape[0]))
+        fpr_mat_rand, tpr_mat_rand, auc_mat_rand = list(), list(), list()
+        confusion_mat_rand = np.zeros(shape=(runs, 4))
+
+    if run_log:
+        scores_log = np.zeros(shape=(runs))
+        fpr_mat_log, tpr_mat_log, auc_mat_log = list(), list(), list()
+        confusion_mat_log = np.zeros(shape=(runs, 4))
 
     scoreboard_left = np.zeros(shape=(brainR.shape[0], runs))
     scoreboard_right = np.zeros(shape=(brainR.shape[0], runs))
@@ -54,8 +82,7 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
         acc_val, acc_test, acc_rand = list(), list(), list()
 
         # load dataset
-        trainX, trainY, valX, valY, testX, testY = load_dataset(brainL_shuffle, brainR_shuffle, slice_num,
-                                                                          channel_vect)
+        trainX, trainY, valX, valY, testX, testY = load_dataset(img_data, opt)
         #         trainX_log, trainY_log, valX_log, valY_log, testX_log, testY_log = load_dataset_log(volL_shuffle,
         #         volR_shuffle)
         #         print(listL)
@@ -83,7 +110,7 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
 
         # define early stop to stop after validation loss stop going down
         es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=15)
-        #         rand_es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=5)
+        rand_es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=5)
 
         # define model checkpoint save best performing model
         checkpoint_filepath = "../models/" + experiment + "/slice_" + str(slice_num + 84) + "_" + str(
