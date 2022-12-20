@@ -1,38 +1,24 @@
 import argparse
 import math
+import matplotlib.pyplot as plt
 import numpy as np
-from functions import load_opt, load_brains, load_dataset, plot_model_stats, plot_training_stats
+import pandas as pd
+import seaborn as sns
+from functions import load_opt, load_brains, load_dataset, load_regression_dataset, plot_model_stats, \
+    plot_training_stats, save_csv_file, run_heatmap
+from make_models import define_model_sgd, define_model_adam
+from sklearn import linear_model
+from sklearn.metrics import roc_curve, auc, confusion_matrix
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.models import load_model
 
 
 def train(exp_name, slice_num, img_data, vol_data, opt):
-    image_count = opt["scan"]["image_count"]
-    use_hipp = opt["scan"]["use_hipp_vol"]
-    use_icv = opt["scan"]["use_icv_adj_hipp"]
-    use_asym = opt["scan"]["use_icv_adj_hipp"]
-    w = opt["scan"]["size_w"]
-    h = opt["scan"]["size_h"]
     runs = opt["training"]["runs"]
     run_rand = opt["model"]["random_CNN"]
     run_log = opt["model"]["logistic_regression"]
 
-    channel_vect = np.arange(image_count)
-    s = image_count
-    if use_hipp:
-        channel_vect = np.append(channel_vect, s)
-        channel_vect = np.append(channel_vect, s + 1)
-        s += 2
-
-    if use_icv:
-        channel_vect = np.append(channel_vect, s)
-        channel_vect = np.append(channel_vect, s + 1)
-        s += 2
-
-    if use_asym:
-        channel_vect = np.append(channel_vect, s)
-        s += 1
-
-    channels = len(channel_vect)
+    channels = opt["scan"]["total_slice_count"]
     thresholds = np.arange(100) / 100
 
     scores_val = np.zeros(shape=(runs, thresholds.shape[0]))
@@ -48,261 +34,232 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
         confusion_mat_rand = np.zeros(shape=(runs, 4))
 
     if run_log:
-        scores_log = np.zeros(shape=(runs))
+        scores_log = np.zeros(shape=runs)
         fpr_mat_log, tpr_mat_log, auc_mat_log = list(), list(), list()
         confusion_mat_log = np.zeros(shape=(runs, 4))
 
-    scoreboard_left = np.zeros(shape=(brainR.shape[0], runs))
-    scoreboard_right = np.zeros(shape=(brainR.shape[0], runs))
-    scoreboard_left[scoreboard_left == 0] = np.nan
-    scoreboard_right[scoreboard_right == 0] = np.nan
+    scoreboards, val_ct_classes, test_ct_classes, train_ct_classes = list(), list(), list(), list()
+    for grp, data in enumerate(img_data):
+        scoreboard = np.zeros(shape=(data.shape[0], runs))
+        scoreboard[scoreboard == 0] = np.nan
+        scoreboards.append(scoreboard)
 
-    Lval_ct = math.floor(brainR.shape[0] * .15)
-    Ltest_ct = math.ceil(brainR.shape[0] * .15)
-    Ltrain_ct = brainR.shape[0] - Lval_ct - Ltest_ct
+        val_ct = math.floor(data.shape[0] * opt["split"]["val"])
+        val_ct_classes.append(val_ct)
 
-    Rval_ct = math.floor(brainR.shape[0] * .15)
-    Rtest_ct = math.ceil(brainR.shape[0] * .15)
-    Rtrain_ct = brainR.shape[0] - Rval_ct - Rtest_ct
+        test_ct = math.ceil(data.shape[0] * opt["split"]["test"])
+        test_ct_classes.append(test_ct)
 
-    experiment = exp_name
+        train_ct = data.shape[0] - val_ct - test_ct
+        train_ct_classes.append(train_ct)
 
     for i in range(runs):
-
         print("Run %d of %d" % (i + 1, runs))
-        listL = np.random.permutation(brainL.shape[0])
-        listR = np.random.permutation(brainR.shape[0])
-        brainL_shuffle = brainL[listL][:160]
-        brainR_shuffle = brainR[listR]
-        volL_shuffle = volL[listL][:160]
-        volR_shuffle = volR[listR]
-        Ltest_ind = listL[-Ltest_ct:][:160]
-        Rtest_ind = listR[-Rtest_ct:]
-        test_ind = np.concatenate((Ltest_ind, Rtest_ind), axis=0)
         acc_val, acc_test, acc_rand = list(), list(), list()
+        data_shuffle_classes, vol_shuffle_classes, test_ind_classes = list()
+        for grp, data in enumerate(img_data):
+            list_grp = np.random.permutation(data.shape[0])
+            data_shuffle = data[list_grp]
+            data_shuffle_classes.append(data_shuffle)
+
+            vol_shuffle = vol_data[grp][list_grp]
+            vol_shuffle_classes.append(vol_shuffle)
+
+            test_ind = list_grp[-test_ct_classes[grp]:]
+            test_ind_classes.append(test_ind)
 
         # load dataset
-        trainX, trainY, valX, valY, testX, testY = load_dataset(img_data, opt)
-        #         trainX_log, trainY_log, valX_log, valY_log, testX_log, testY_log = load_dataset_log(volL_shuffle,
-        #         volR_shuffle)
-        #         print(listL)
-        #         print(Ltest_ind)
-        #         print(listR)
-        #         print(Rtest_ind)
-        #         print(test_ind)
-        print(trainX.shape, valX.shape, testX.shape)
-        #         print(trainY.shape, valY.shape, testY.shape)
-        #         print(trainX_log.shape, valX_log.shape, testX_log.shape)
-        #         print(trainY_log.shape, valY_log.shape, testY_log.shape)
+        train_x, train_y, val_x, val_y, test_x, test_y = load_dataset(data_shuffle_classes, opt)
+        print(train_x.shape, val_x.shape, test_x.shape)
         print("Done loading slice")
 
-        #         subject_performance.append(test_name[:,0])
-
-        #         # Randomly shuffle the y labels
-        #         rand_train = np.random.permutation(trainY.shape[0])
-        #         rand_val = np.random.permutation(valY.shape[0])
-        #         rand_trainY = trainY[rand_train]
-        #         rand_valY = valY[rand_val]
-
         # define model
-        cnn_model = define_model_new(channels)
-        #         rand_model = define_model(channels)
+        cnn_model = define_model_adam(channels, opt)
 
         # define early stop to stop after validation loss stop going down
         es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=15)
-        rand_es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=5)
-
         # define model checkpoint save best performing model
-        checkpoint_filepath = "../models/" + experiment + "/slice_" + str(slice_num + 84) + "_" + str(
+        checkpoint_filepath = opt["filepath"]["models"] + exp_name + "/slice_" + str(slice_num) + "_" + str(
             channels) + "_channels_run_" + str(i) + ".h5"
-        #         rand_checkpoint_filepath = "../models/"+experiment+"/rand_slice_"+str(slice_num+84)+"_"+str(channels)
-        #         +"_channels_run_"+str(i)+".h5"
         mc = ModelCheckpoint(filepath=checkpoint_filepath, monitor='val_accuracy', mode='max', verbose=0,
                              save_best_only=True)
-        #         rand_mc = ModelCheckpoint(filepath=rand_checkpoint_filepath, monitor='val_accuracy', mode='max',
-        #         verbose=0, save_best_only=True)
 
         # fit model
-        history = cnn_model.fit(trainX, trainY, epochs=60, batch_size=4, validation_data=(valX, valY), verbose=0,
+        history = cnn_model.fit(train_x, train_y, epochs=60, batch_size=4, validation_data=(val_x, val_y), verbose=0,
                                 callbacks=[es, mc])
-        #         rand_history = rand_model.fit(trainX, rand_trainY, epochs=60, batch_size=4, validation_data=(valX,
-        #         rand_valY), verbose=0, callbacks=[rand_es, rand_mc])
 
         # Evaluate on test
         best_model = load_model(checkpoint_filepath)
-        #         rand_best_model = load_model(rand_checkpoint_filepath)
-        predY_val = best_model.predict(valX)
-        predY_test = best_model.predict(testX)
-        #         rand_predY_test = rand_best_model.predict(testX)
+        pred_y_val = best_model.predict(val_x)
+        pred_y_test = best_model.predict(test_x)
 
         for thresh in thresholds:
             # For val
-            predY_val_binary = np.zeros(predY_val[:, 0].shape)
-            predY_val_binary[predY_val[:, 0] > thresh] = 1
+            pred_y_val_binary = np.zeros(pred_y_val[:, 0].shape)
+            pred_y_val_binary[pred_y_val[:, 0] > thresh] = 1
 
-            acc_val.append(np.sum(valY[:, 0] == predY_val_binary) / valY.shape[0])
+            acc_val.append(np.sum(val_y[:, 0] == pred_y_val_binary) / val_y.shape[0])
 
             # For test
-            predY_test_binary = np.zeros(predY_test[:, 0].shape)
-            predY_test_binary[predY_test[:, 0] > thresh] = 1
+            pred_y_test_binary = np.zeros(pred_y_test[:, 0].shape)
+            pred_y_test_binary[pred_y_test[:, 0] > thresh] = 1
 
-            acc_test.append(np.sum(testY[:, 0] == predY_test_binary) / testY.shape[0])
+            acc_test.append(np.sum(test_y[:, 0] == pred_y_test_binary) / test_y.shape[0])
 
-        #             #For noting subject by subject accuracies
-        #             if thresh == .5:
-        #                 for test_sbj_ind in range(test_ind.shape[0]):
-        #                     if test_sbj_ind < Ltest_ind.shape[0]:
-        #                         if testY[test_sbj_ind,0] == predY_test_binary[test_sbj_ind]:
-        #                             scoreboard_left[test_ind[test_sbj_ind],i] = 1
-        #                         else:
-        #                             scoreboard_left[test_ind[test_sbj_ind],i] = 0
-        #                     else:
-        #                         if testY[test_sbj_ind,0] == predY_test_binary[test_sbj_ind]:
-        #                             scoreboard_right[test_ind[test_sbj_ind],i] = 1
-        #                         else:
-        #                             scoreboard_right[test_ind[test_sbj_ind],i] = 0
+            # For noting subject by subject accuracies
+            if thresh == .5:
+                for grp, test_ind in enumerate(test_ind_classes):
+                    for test_sbj_ind in range(test_ind.shape[0]):
+                        if test_y[test_sbj_ind, 0] == pred_y_test_binary[test_sbj_ind]:
+                            scoreboards[grp][test_sbj_ind, i] = 1
+                        else:
+                            scoreboards[grp][test_sbj_ind, i] = 0
 
-        #             #For rand
-        #             rand_predY_test_binary = np.zeros(rand_predY_test[:,0].shape)
-        #             rand_predY_test_binary[rand_predY_test[:,0] > thresh] = 1
+        print('validation accuracy: %.3f' % (np.max(acc_val) * 100.0))
+        print('Test accuracy (val): %.3f' % (acc_test[acc_val.index(np.max(acc_val))] * 100.0))
+        print('Test accuracy (0.5): %.3f' % (acc_test[49] * 100.0))
 
-        #             acc_rand.append(np.sum(testY[:,0] == rand_predY_test_binary) / testY.shape[0])
-
-        print('validation accuarcy: %.3f' % (np.max(acc_val) * 100.0))
-        print('Test accuarcy (val): %.3f' % (acc_test[acc_val.index(np.max(acc_val))] * 100.0))
-        print('Test accuarcy (0.5): %.3f' % (acc_test[49] * 100.0))
-        #         print('Test accuarcy (max): %.3f' % (np.max(acc_test) * 100.0))
-        #         print('Test accuarcy (rand): %.3f' % (acc_rand[49] * 100.0))
-
-        # stores scores
+        # Store scores
         scores_val[i, :] = acc_val
         scores_test[i, :] = acc_test
-        #         scores_rand[i,:] = acc_rand
         histories.append(history)
 
         # evaluate model on test dataset to get auc
-        fpr, tpr, treshhold_roc = roc_curve(testY[:, 0], predY_test[:, 0], drop_intermediate=False)
-        #         fpr_rand, tpr_rand, treshhold_roc_rand = roc_curve(testY[:,0], rand_predY_test[:,0])
-        auc_cnn = auc(fpr, tpr)
-        #         auc_rand = auc(fpr_rand, tpr_rand)
-
+        fpr, tpr, threshold_roc = roc_curve(test_y[:, 0], pred_y_test[:, 0], drop_intermediate=False)
         tpr_mat.append(np.interp(mean_fpr, fpr, tpr))
-        #         tpr_mat_rand.append(np.interp(mean_fpr, fpr_rand, tpr_rand))
+        auc_cnn = auc(fpr, tpr)
+        auc_mat.append(auc_cnn)
 
         # Produce the confusion matrix
-        pred = np.argmax(predY_test, axis=1)
-        #         pred_rand = np.argmax(rand_predY_test, axis=1)
-        label = np.argmax(testY, axis=1)
+        pred = np.argmax(pred_y_test, axis=1)
+        label = np.argmax(test_y, axis=1)
         con_mat = confusion_matrix(label, pred)
-        #         con_mat_rand = confusion_matrix(label, pred_rand)
-
-        auc_mat.append(auc_cnn)
-        #         auc_mat_rand.append(auc_rand)
         confusion_mat[i, 0] = con_mat[0, 0]
         confusion_mat[i, 1] = con_mat[0, 1]
         confusion_mat[i, 2] = con_mat[1, 0]
         confusion_mat[i, 3] = con_mat[1, 1]
-    #         confusion_mat_rand[i,0]=con_mat_rand[0,0]
-    #         confusion_mat_rand[i,1]=con_mat_rand[0,1]
-    #         confusion_mat_rand[i,2]=con_mat_rand[1,0]
-    #         confusion_mat_rand[i,3]=con_mat_rand[1,1]
 
-    #         ## SVM Section
-    #         log_model = linear_model.LogisticRegression(random_state=0).fit(trainX_log, trainY_log)
-    #         predY_test_log = log_model.decision_function(testX_log)
-    #         predY_binary_log = log_model.predict(testX_log)
+        if run_rand:
+            # Randomly shuffle the y labels
+            rand_train = np.random.permutation(train_y.shape[0])
+            rand_val = np.random.permutation(val_y.shape[0])
+            rand_train_y = train_y[rand_train]
+            rand_val_y = val_y[rand_val]
 
-    #         fpr_log, tpr_log, threshold_roc_log = roc_curve(testY_log, predY_test_log)
-    #         auc_log = auc(fpr_log, tpr_log)
-    #         con_mat_log = confusion_matrix(testY_log, predY_binary_log)
+            rand_model = define_model_sgd(channels, opt)
 
-    #         tpr_mat_log.append(np.interp(mean_fpr, fpr_log, tpr_log))
+            rand_es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=5)
+            rand_checkpoint_filepath = opt["filepath"]["models"] + exp_name + "/rand_slice_" + str(
+                slice_num) + "_" + str(channels) + "_channels_run_" + str(i) + ".h5"
+            rand_mc = ModelCheckpoint(filepath=rand_checkpoint_filepath, monitor='val_accuracy', mode='max',
+                                      verbose=0, save_best_only=True)
+            _ = rand_model.fit(train_x, rand_train_y, epochs=60, batch_size=4, validation_data=(val_x, rand_val_y),
+                               verbose=0, callbacks=[rand_es, rand_mc])
 
-    #         auc_mat_log.append(auc_log)
-    #         confusion_mat_log[i,0]=con_mat_log[0,0]
-    #         confusion_mat_log[i,1]=con_mat_log[0,1]
-    #         confusion_mat_log[i,2]=con_mat_log[1,0]
-    #         confusion_mat_log[i,3]=con_mat_log[1,1]
+            rand_best_model = load_model(rand_checkpoint_filepath)
+            rand_pred_y_test = rand_best_model.predict(test_x)
 
-    #         acc_log = log_model.score(testX_log, testY_log)
-    #         scores_log[i] = acc_log
-    #         print('Test accuarcy (log): %.3f' % (acc_log * 100.0))
+            for thresh in thresholds:
+                # For rand
+                rand_pred_y_test_binary = np.zeros(rand_pred_y_test[:, 0].shape)
+                rand_pred_y_test_binary[rand_pred_y_test[:, 0] > thresh] = 1
 
-    #         plt.figure(1)
-    #         plt.plot([0, 1], [0, 1], 'k--')
-    #         plt.plot(fpr, tpr, label='CNN (area = {:.3f})'.format(auc_cnn))
-    #         plt.plot(fpr_log, tpr_log, label='Log Regression (area = {:.3f})'.format(auc_log))
-    #         plt.plot(fpr_rand, tpr_rand, label='CNN Random (area = {:.3f})'.format(auc_rand))
-    #         plt.xlabel('False positive rate')
-    #         plt.ylabel('True positive rate')
-    #         plt.title('ROC curve')
-    #         plt.legend(loc='best')
-    #         roc_filepath = '../figures/'+experiment+'/roc_curve_run_'+str(i)+'.png'
-    #         plt.savefig(roc_filepath)
-    #         plt.clf()
+                acc_rand.append(np.sum(test_y[:, 0] == rand_pred_y_test_binary) / test_y.shape[0])
+                print("Test accuracy (rand): %.3f" % (acc_rand[49] * 100.0))
+
+                scores_rand[i, :] = acc_rand
+
+                fpr_rand, tpr_rand, threshold_roc_rand = roc_curve(test_y[:, 0], rand_pred_y_test[:, 0])
+                tpr_mat_rand.append(np.interp(mean_fpr, fpr_rand, tpr_rand))
+                auc_rand = auc(fpr_rand, tpr_rand)
+                auc_mat_rand.append(auc_rand)
+
+                pred_rand = np.argmax(rand_pred_y_test, axis=1)
+                con_mat_rand = confusion_matrix(label, pred_rand)
+                confusion_mat_rand[i, 0] = con_mat_rand[0, 0]
+                confusion_mat_rand[i, 1] = con_mat_rand[0, 1]
+                confusion_mat_rand[i, 2] = con_mat_rand[1, 0]
+                confusion_mat_rand[i, 3] = con_mat_rand[1, 1]
+
+        if run_log:
+            train_x_log, train_y_log, val_x_log, val_y_log, test_x_log, test_y_log = \
+                load_regression_dataset(vol_shuffle_classes, opt)
+
+            # SVM Section
+            log_model = linear_model.LogisticRegression(random_state=0).fit(train_x_log, train_y_log)
+            pred_y_test_log = log_model.decision_function(test_x_log)
+            pred_y_binary_log = log_model.predict(test_x_log)
+
+            fpr_log, tpr_log, threshold_roc_log = roc_curve(test_y_log, pred_y_test_log)
+            tpr_mat_log.append(np.interp(mean_fpr, fpr_log, tpr_log))
+            auc_log = auc(fpr_log, tpr_log)
+            auc_mat_log.append(auc_log)
+
+            con_mat_log = confusion_matrix(test_y_log, pred_y_binary_log)
+            confusion_mat_log[i, 0] = con_mat_log[0, 0]
+            confusion_mat_log[i, 1] = con_mat_log[0, 1]
+            confusion_mat_log[i, 2] = con_mat_log[1, 0]
+            confusion_mat_log[i, 3] = con_mat_log[1, 1]
+
+            acc_log = log_model.score(test_x_log, test_y_log)
+            scores_log[i] = acc_log
+            print("Test accuracy (log): %.3f" % (acc_log * 100.0))
+
+            plt.figure(1)
+            plt.plot([0, 1], [0, 1], "k--")
+            plt.plot(fpr, tpr, label="CNN (area = {:.3f})".format(auc_cnn))
+            plt.plot(fpr_log, tpr_log, label="Log Regression (area = {:.3f})".format(auc_log))
+            if run_rand:
+                plt.plot(fpr_rand, tpr_rand, label="CNN Random (area = {:.3f})".format(auc_rand))
+            plt.xlabel("False positive rate")
+            plt.ylabel("True positive rate")
+            plt.title("ROC curve")
+            plt.legend(loc="best")
+            roc_filepath = opt["filepath"]["figures"] + exp_name + "\\roc_curve_run_" + str(i) + ".png"
+            plt.savefig(roc_filepath)
+            plt.clf()
 
     # Write score_val
-    filename_scores_val = '../files/' + experiment + '_scores_val.csv'
-    np.savetxt(filename_scores_val, scores_val, delimiter=',', fmt='%1.3f')
-
+    save_csv_file(scores_val, exp_name, "scores_val", opt)
     # Write score_test
-    filename_scores_test = '../files/' + experiment + '_scores_test.csv'
-    np.savetxt(filename_scores_test, scores_test, delimiter=',', fmt='%1.3f')
-
+    save_csv_file(scores_test, exp_name, "scores_test", opt)
     # Write TPR
-    filename_tpr = '../files/' + experiment + '_tpr.csv'
-    np.savetxt(filename_tpr, tpr_mat, delimiter=',', fmt='%1.3f')
-
+    save_csv_file(tpr_mat, exp_name, "tpr", opt)
     # Write AUC
-    filename_auc = '../files/' + experiment + '_auc.csv'
-    np.savetxt(filename_auc, auc_mat, delimiter=',', fmt='%1.3f')
-
+    save_csv_file(auc_mat, exp_name, "auc", opt)
     # Write Confusion matrix
-    filename_con_mat = '../files/' + experiment + '_con_mat.csv'
-    np.savetxt(filename_con_mat, confusion_mat, delimiter=',', fmt='%1.3f')
+    save_csv_file(confusion_mat, exp_name, "con_mat", opt)
+    # Write sbj scores TLE
+    for grp, scoreboard in enumerate(scoreboards):
+        save_csv_file(scoreboard, exp_name, "scores_class_" + str(grp), opt)
 
-    #     # Write score_test Rand
-    #     filename_score_test_rand = '../files/'+experiment+'_scores_test_rand.csv'
-    #     np.savetxt(filename_score_test_rand,scores_rand,delimiter=',')
+    results = {"val": scores_val, "test": scores_test}
 
-    #     # Write TPR
-    #     filename_tpr_rand = '../files/'+experiment+'_tpr_rand.csv'
-    #     np.savetxt(filename_tpr_rand,tpr_mat_rand,delimiter=',',fmt='%1.3f')
+    if run_rand:
+        # Write score_test Rand
+        save_csv_file(scores_rand, exp_name, "scores_test_rand", opt)
+        # Write TPR Rand
+        save_csv_file(tpr_mat_rand, exp_name, "tpr_rand", opt)
+        # Write AUC Rand
+        save_csv_file(auc_mat_rand, exp_name, "auc_rand", opt)
+        # Write Confusion matrix Rand
+        save_csv_file(confusion_mat_rand, exp_name, "con_mat_rand", opt)
 
-    #     # Write AUC Rand
-    #     filename_auc_rand = '../files/'+experiment+'_auc_rand.csv'
-    #     np.savetxt(filename_auc_rand,auc_mat_rand,delimiter=',')
+        results["rand"] = scores_rand
 
-    #     # Write Confusion matrix Rand
-    #     filename_con_mat_rand = '../files/'+experiment+'_con_mat_rand.csv'
-    #     np.savetxt(filename_con_mat_rand,confusion_mat_rand,delimiter=',')
+    if run_log:
+        # Write score_test Log
+        save_csv_file(scores_log, exp_name, "scores_log", opt)
+        # Write TPR Log
+        save_csv_file(tpr_mat_log, exp_name, "tpr_log", opt)
+        # Write AUC Log
+        save_csv_file(auc_mat_log, exp_name, "auc_log", opt)
+        # Write Confusion matrix Log
+        save_csv_file(confusion_mat_log, exp_name, "con_mat_log", opt)
 
-    #     # Write score_test Log
-    #     filename_scores_log = '../files/'+experiment+'_scores_log.csv'
-    #     np.savetxt(filename_scores_log,scores_log,delimiter=',')
+        results["log"] = scores_log
 
-    #     # Write TPR
-    #     filename_tpr_log = '../files/'+experiment+'_tpr_log.csv'
-    #     np.savetxt(filename_tpr_log,tpr_mat_log,delimiter=',',fmt='%1.3f')
-
-    #     # Write AUC Log
-    #     filename_auc_log = '../files/'+experiment+'_auc_log.csv'
-    #     np.savetxt(filename_auc_log,auc_mat_log,delimiter=',')
-
-    #     # Write Confusion matrix Log
-    #     filename_con_mat_log = '../files/'+experiment+'_con_mat_log.csv'
-    #     np.savetxt(filename_con_mat_log,confusion_mat_log,delimiter=',')
-
-    #     # Write sbj scores Left TLE
-    #     filename_scores_left_sbj = '../files/'+experiment+'_scores_left_sbj.csv'
-    #     np.savetxt(filename_scores_left_sbj,scoreboard_left,delimiter=',',fmt='%1.3f')
-
-    #     # Write sbj scores Right TLE
-    #     filename_scores_right_sbj = '../files/'+experiment+'_scores_right_sbj.csv'
-    #     np.savetxt(filename_scores_right_sbj,scoreboard_right,delimiter=',',fmt='%1.3f')
-
-    print(img_data, vol_data, opt)
-    return exp_name, slice_num
+    return results, histories
 
 
 def main():
@@ -311,12 +268,18 @@ def main():
 
     parser.add_argument("exp", help="Experiment name")
     parser.add_argument("slice", help="Which coronal slice to start input from")
+    parser.add_argument("-d", "--density-plot", action="store_true", help="Plot density plots")
+    parser.add_argument("-h", "--heatmap", action="store_true", help="Plot heatmaps")
 
     args = vars(parser.parse_args())
     exp_name = args["exp"]
     slice_num = args["slice"]
+    density_plot = args["density-plot"]
+    get_heatmaps = args["heatmap"]
 
     opt = load_opt("D:\\Lab\\Lateralization_CNN\\setting\\")
+    run_rand = opt["model"]["random_CNN"]
+    run_log = opt["model"]["logistic_regression"]
 
     # Store all the different groups as separate index
     img_data = list()
@@ -332,6 +295,55 @@ def main():
 
     plot_training_stats(histories, exp_name, opt)
     plot_model_stats(results, exp_name, opt)
+
+    # Compare density plot of CNN and mean Rand and mean Log
+    sns.displot(results["test"][:, 49] * 100, kind="kde")
+    if run_rand:
+        plt.axvline(np.mean(results["log"]) * 100, 0, 1, color="green", label="Log")
+    if run_log:
+        plt.axvline(np.mean(results["rand"][:, 49]) * 100, 0, 1, color="red", label="Rand")
+    plt.legend(loc="best")
+    dist_filepath = opt["filepath"]["figures"] + exp_name + "\\distribution_plot.png"
+    plt.savefig(dist_filepath)
+
+    if density_plot:
+        if run_rand:
+            # Density plot of Rand and CNN
+            sns.displot((results["test"][:, 49] * 100, results["rand"][:, 49] * 100), kind='kde', legend=False)
+            rand_cnn_filepath = opt["filepath"]["figures"] + exp_name + "\\rand_CNN_distribution_plot.png"
+            plt.savefig(rand_cnn_filepath)
+
+            # Density plot of CNN minus Rand
+            scores_diff_rand = results["test"][:, 49] - results["rand"][:, 49]
+            sns.displot(scores_diff_rand * 100, kind='kde')
+            diff_rand_filepath = opt["filepath"]["figures"] + exp_name + "\\scores_diff_rand_distribution_plot.png"
+            plt.savefig(diff_rand_filepath)
+
+        if run_log:
+            # Density plot of Log and CNN
+            sns.displot((results["test"][:, 49] * 100, results["log"] * 100), kind='kde', legend=False)
+            log_cnn_filepath = opt["filepath"]["figures"] + exp_name + "\\log_CNN_distribution_plot.png"
+            plt.savefig(log_cnn_filepath)
+
+            # Density plot of CNN minus Log
+            scores_diff_log = results["test"][:, 49] - results["log"]
+            sns.displot(scores_diff_log * 100, kind='kde')
+            diff_log_filepath = opt["filepath"]["figures"] + exp_name + "\\scores_diff_log_distribution_plot.png"
+            plt.savefig(diff_log_filepath)
+
+    if run_rand and run_log:
+        diff_data = {'CNN<Rand': np.count_nonzero(scores_diff_rand < 0),
+                     'CNN==Rand': np.count_nonzero(scores_diff_rand == 0),
+                     'CNN>Rand': np.count_nonzero(scores_diff_rand > 0),
+                     'CNN<Log': np.count_nonzero(scores_diff_log < 0),
+                     'CNN==Log': np.count_nonzero(scores_diff_log == 0),
+                     'CNN>Log': np.count_nonzero(scores_diff_log > 0)}
+        diff_df = pd.DataFrame(data=diff_data, index=["Count"])
+        diff_df_path = opt["filepath"]["files"] + exp_name + "\\count_diff.csv"
+        diff_df.to_csv(diff_df_path)
+
+    if get_heatmaps:
+        run_heatmap(img_data, slice_num, 5, exp_name, opt)
 
 
 if __name__ == "__main__":

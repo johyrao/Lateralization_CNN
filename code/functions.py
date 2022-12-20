@@ -1,3 +1,4 @@
+import cv2
 import json
 import math
 import os
@@ -5,6 +6,8 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import to_categorical
 
 
@@ -345,3 +348,107 @@ def plot_model_stats(results, exp, opt):
     plt.title("Accuracies of Different Models")
     ax.set_xticklabels(data.keys())
     plt.savefig(acc_filepath)
+
+
+def save_csv_file(data, exp_name, file, opt):
+    filename = opt["filepath"]["files"] + exp_name + "\\" + file + ".csv"
+    np.savetxt(filename, data, delimiter=',', fmt='%1.3f')
+
+
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
+    # First, we create a model that maps the input image to the activations
+    # of the last conv layer as well as the output predictions
+    grad_model = tf.keras.models.Model(
+        [model.inputs], [model.get_layer(last_conv_layer_name).output, model.output]
+    )
+
+    # Then, we compute the gradient of the top predicted class for our input image
+    # with respect to the activations of the last conv layer
+    with tf.GradientTape() as tape:
+        last_conv_layer_output, pred = grad_model(img_array)
+        if pred_index is None:
+            pred_index = tf.argmax(pred[0])
+        class_channel = pred[:, pred_index]
+
+    # This is the gradient of the output neuron (top predicted or chosen)
+    # with regard to the output feature map of the last conv layer
+    grads = tape.gradient(class_channel, last_conv_layer_output)
+
+    # This is a vector where each entry is the mean intensity of the gradient
+    # over a specific feature map channel
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    # We multiply each channel in the feature map array
+    # by "how important this channel is" with regard to the top predicted class
+    # then sum all the channels to obtain the heatmap class activation
+    last_conv_layer_output = last_conv_layer_output[0]
+    heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+
+    # For visualization purpose, we will also normalize the heatmap between 0 & 1
+    heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    return heatmap.numpy()
+
+
+def get_hm_by_diff_sbj(model_name, img_data, opt):
+    channels = opt["scan"]["total_slice_count"]
+
+    # run_model(slice_start, channels, brainsL, brainsR)
+    model_cnn = load_model(model_name)
+
+    heatmaps = list()
+    for grp, data in enumerate(img_data):
+        heatmap_mat = np.empty(shape=(40, 40, data.shape[0]))
+
+        # Get third convolutional layer name
+        conv_index = 0
+        layer_name = ""
+        for layer in model_cnn.layers:
+
+            if 'conv' in layer.name:
+                conv_index = conv_index + 1
+                if conv_index == 3:
+                    layer_name = layer.name
+
+        for i in range(data.shape[0]):
+            test_x = np.empty(shape=(1, opt["scan"]["size_w"], opt["scan"]["size_h"], channels))
+            for j in range(channels):
+                img = data[i, :, j, :]
+                test_x[0, :, :, j] = img
+
+            heatmap = make_gradcam_heatmap(test_x, model_cnn, layer_name)
+            heatmap_mat[:, :, i] = heatmap
+
+        heatmaps.append(heatmap_mat)
+
+    return heatmaps
+
+
+def run_heatmap(img_data, slice_num, runs, exp_name, opt):
+    channels = opt["scan"]["total_slice_count"]
+
+    heatmap = list()
+    for _, data in img_data:
+        heatmap.append(np.empty(shape=(40, 40, data.shape[0], runs)))
+
+    for i in range(runs):
+        # Create model filename string
+        print('Getting model heatmaps for %d of %d model runs' % (i + 1, runs))
+        model_name = "../models/three_models_at_once/slice_" + str(slice_num) + "_" + str(channels) + "_channels_run_" \
+                     + str(i) + ".h5"
+
+        heatmaps = get_hm_by_diff_sbj(model_name, img_data, opt)
+
+        for grp, hm in heatmap:
+            hm[grp][:, :, :, i] = heatmaps[grp]
+
+    for grp, hm in heatmap:
+        heatmap_avg_model = np.mean(hm[grp], axis=3)
+        heatmap_avg_sbj = np.mean(heatmap_avg_model, axis=2)
+        heatmap_resize = cv2.resize(heatmap_avg_sbj, (opt["scan"]["size_w"], opt["scan"]["size_h"]),
+                                    interpolation=cv2.INTER_CUBIC)
+
+        plt.imshow(np.rot90(img_data[grp][1, :, 4, :]), cmap="gray")
+        plt.imshow(np.rot90(heatmap_resize), cmap="jet", alpha=0.4)
+        heatmap_path = opt["filepath"]["figures"] + exp_name + "\\heatmap_" + str(grp) + ".png"
+        plt.savefig(heatmap_path)
