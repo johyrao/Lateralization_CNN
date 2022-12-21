@@ -7,7 +7,7 @@ import pandas as pd
 import seaborn as sns
 from functions import load_opt, load_data, load_dataset, load_regression_dataset, plot_model_stats, \
     plot_training_stats, save_csv_file, run_heatmap
-from make_models import define_model_sgd, define_model_adam, define_model_3d
+from make_models import define_model, define_model_3d
 from sklearn import linear_model
 from sklearn.metrics import roc_curve, auc, confusion_matrix
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -80,7 +80,7 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
         if cnn_3d:
             cnn_model = define_model_3d(channels, opt)
         else:
-            cnn_model = define_model_adam(channels, opt)
+            cnn_model = define_model(channels, opt)
 
         # define early stop to stop after validation loss stop going down
         es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=15)
@@ -152,7 +152,7 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
             rand_train_y = train_y[rand_train]
             rand_val_y = val_y[rand_val]
 
-            rand_model = define_model_sgd(channels, opt)
+            rand_model = define_model(channels, opt)
 
             rand_es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=5)
             rand_checkpoint_filepath = opt["filepath"]["models"] + exp_name + "/rand_slice_" + str(

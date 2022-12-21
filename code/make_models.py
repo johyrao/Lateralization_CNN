@@ -1,7 +1,7 @@
 import numpy as np
 from tensorflow.keras.models import Sequential, load_model, Model
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, BatchNormalization, GlobalAveragePooling2D, \
-    Dropout, Conv3D, MaxPooling3D
+from tensorflow.keras.layers import Conv2D, MaxPool2D, Dense, Flatten, BatchNormalization, GlobalAveragePooling2D, \
+    Dropout, Conv3D, MaxPool3D
 from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras.applications import ResNet50V2
 from tensorflow.keras import regularizers, Input
@@ -38,12 +38,12 @@ def train_pls(train_feat_mat, train_y, component):
     return pls
 
 
-def make_resnet(opt):
+def make_resnet(config):
     # Make pretrain resnet model
-    inputs = Input(shape=(opt["scan"]["size_w"], opt["scan"]["size_h"], 3))
+    inputs = Input(shape=(config["scan"]["size_w"], config["scan"]["size_h"], 3))
 
     res_net = ResNet50V2(include_top=False, input_tensor=inputs,
-                         input_shape=(opt["scan"]["size_w"], opt["scan"]["size_h"], 3),
+                         input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], 3),
                          weights='imagenet')
     res_net.trainable = False
 
@@ -65,110 +65,140 @@ def make_resnet(opt):
     return resnet_model
 
 
-def define_model_sgd(channels, config):
+def define_model(channels, config):
+    classes = config["hyperparameter"]["classes"]
+    layers = config["hyperparameter"]["layers"]
+    optimizer = config["hyperparameter"]["optimizer"]
+    loss = config["hyperparameter"]["loss"]
+    metric = config["hyperparameter"]["accuracy"]
+    activation = config["hyperparameter"]["activation"]
+    activation_dense = config["hyperparameter"]["activation_dense"]
+    kernel_init = config["hyperparameter"]["kernel_initializer"]
+    filter_init = config["hyperparameter"]["filter_init"]
+    filter_size = config["hyperparameter"]["filter_size"]
+    pool_size = config["hyperparameter"]["pool_size"]
+    padding = config["hyperparameter"]["padding"]
+    l2 = config["hyperparameter"]["l2"]
+    lr_sgd = config["hyperparameter"]["lr_sgd"]
+    lr_adam = config["hyperparameter"]["lr_adam"]
+    momentum = config["hyperparameter"]["momentum"]
+    w = config["scan"]["size_w"]
+    h = config["scan"]["size_h"]
+
     model = Sequential()
-    model.add(Conv2D(8, (3, 3), activation='relu', kernel_initializer='he_uniform',
-                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], channels),
-                     padding="same", name='conv2d_1'))
-    model.add(BatchNormalization())
-    model.add(Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv2d_2'))
-    model.add(BatchNormalization())
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv2d_3'))
-    model.add(BatchNormalization())
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Flatten())
-    model.add(Dense(2, activation='softmax', kernel_regularizer=regularizers.l2(.001)))
+
+    for i in range(layers):
+        filters = filter_init * i
+        conv_name = "conv_" + str(i + 1)
+        bn_name = "BN_" + str(i + 1)
+
+        model.add(Conv2D(filters,
+                         (filter_size, filter_size),
+                         activation=activation,
+                         kernel_initializer=kernel_init,
+                         input_shape=(w, h, channels),
+                         padding=padding,
+                         name=conv_name))
+        model.add(BatchNormalization(name=bn_name))
+
+        if i < (layers - 1):
+            model.add(MaxPool2D((pool_size, pool_size)))
+        else:
+            model.add(Flatten())
+
+    model.add(Dense(classes,
+                    activation=activation_dense,
+                    kernel_regularizer=regularizers.l2(l2),
+                    name='dense'))
 
     # compile model
-    opt = SGD(learning_rate=0.001, momentum=0.9)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
-
-    return model
-
-
-def define_model_adam(channels, config):
-    model = Sequential()
-    model.add(Conv2D(8, (3, 3), activation='relu', kernel_initializer='he_uniform',
-                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], channels),
-                     padding="same", name='conv_1'))
-    model.add(BatchNormalization(name='BN_1'))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_2'))
-    model.add(BatchNormalization(name='BN_2'))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
-    model.add(BatchNormalization(name='BN_3'))
-    model.add(Flatten())
-    model.add(Dense(2, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))
-
-    # compile model
-    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
-    opt = Adam(learning_rate=0.01)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
-
-    return model
-
-
-def define_model_site(channels, config):
-    model = Sequential()
-    model.add(Conv2D(8, (3, 3), activation='relu', kernel_initializer='he_uniform',
-                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], channels),
-                     padding="same", name='conv_1'))
-    model.add(BatchNormalization(name='BN_1'))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_2'))
-    model.add(BatchNormalization(name='BN_2'))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
-    model.add(BatchNormalization(name='BN_3'))
-    model.add(Flatten())
-    model.add(Dense(6, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))
-
-    # compile model
-    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
-    opt = Adam(learning_rate=0.01)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    if optimizer == "sgd":
+        opt = SGD(learning_rate=lr_sgd, momentum=momentum)
+    else:
+        opt = Adam(learning_rate=lr_adam)
+    model.compile(optimizer=opt, loss=loss, metrics=[metric])
 
     return model
 
 
 def define_model_3d(depth, config):
+    classes = config["hyperparameter"]["classes"]
+    layers = config["hyperparameter"]["layers"]
+    optimizer = config["hyperparameter"]["optimizer"]
+    loss = config["hyperparameter"]["loss"]
+    metric = config["hyperparameter"]["accuracy"]
+    activation = config["hyperparameter"]["activation"]
+    activation_dense = config["hyperparameter"]["activation_dense"]
+    kernel_init = config["hyperparameter"]["kernel_initializer"]
+    filter_init = config["hyperparameter"]["filter_init"]
+    filter_size = config["hyperparameter"]["filter_size"]
+    pool_size = config["hyperparameter"]["pool_size"]
+    padding = config["hyperparameter"]["padding"]
+    l2 = config["hyperparameter"]["l2"]
+    lr_sgd = config["hyperparameter"]["lr_sgd"]
+    lr_adam = config["hyperparameter"]["lr_adam"]
+    momentum = config["hyperparameter"]["momentum"]
+    w = config["scan"]["size_w"]
+    h = config["scan"]["size_h"]
+
     model = Sequential()
-    model.add(Conv3D(8, (3, 3, 3), activation='relu', kernel_initializer='he_uniform',
-                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], depth, 1),
-                     padding="same", name='conv_1'))
-    model.add(BatchNormalization(name='BN_1'))
-    model.add(MaxPooling3D((2, 2, 2)))
-    model.add(Conv3D(16, (3, 3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_2'))
-    model.add(BatchNormalization(name='BN_2'))
-    model.add(MaxPooling3D((2, 2, 2)))
-    model.add(Conv3D(32, (3, 3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
-    model.add(BatchNormalization(name='BN_3'))
-    model.add(Flatten())
-    model.add(Dense(2, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))
+
+    for i in range(layers):
+        filters = filter_init * i
+        conv_name = "conv_" + str(i + 1)
+        bn_name = "BN_" + str(i + 1)
+
+        model.add(Conv3D(filters,
+                         (filter_size, filter_size, filter_size),
+                         activation=activation,
+                         kernel_initializer=kernel_init,
+                         input_shape=(w, h, depth, 1),
+                         padding=padding,
+                         name=conv_name))
+        model.add(BatchNormalization(name=bn_name))
+
+        if i < (layers - 1):
+            model.add(MaxPool3D((pool_size, pool_size, pool_size)))
+        else:
+            model.add(Flatten())
+
+    model.add(Dense(classes,
+                    activation=activation_dense,
+                    kernel_regularizer=regularizers.l2(l2),
+                    name='dense'))
 
     # compile model
-    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
-    opt = Adam(learning_rate=0.01)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    if optimizer == "sgd":
+        opt = SGD(learning_rate=lr_sgd, momentum=momentum)
+    else:
+        opt = Adam(learning_rate=lr_adam)
+    model.compile(optimizer=opt, loss=loss, metrics=[metric])
 
     return model
 
 
-def define_model_new():
-    model = load_model("D:\\Lab\\CNN-Project\\models\\exp_6\\slice_84_7_channels_run_81.h5")
+def define_model_site(config):
+    classes = config["hyperparameter"]["classes"]
+    activation_dense = config["hyperparameter"]["activation_dense"]
+    loss = config["hyperparameter"]["loss"]
+    metric = config["hyperparameter"]["accuracy"]
+    optimizer = config["hyperparameter"]["optimizer"]
+    lr_sgd = config["hyperparameter"]["lr_sgd"]
+    lr_adam = config["hyperparameter"]["lr_adam"]
+    momentum = config["hyperparameter"]["momentum"]
 
-    for layer in model.layers:
-        layer.trainable = False
+    model = load_model("D:\\Lab\\CNN-Project\\models\\exp_6\\slice_84_7_channels_run_81.h5")
+    model.trainable = False
 
     x = model.layers[-2].output
-    x = Dense(6, activation="softmax")(x)
+    x = Dense(classes, activation=activation_dense)(x)
     model_new = Model(inputs=model.input, outputs=x)
 
     # compile model
-    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
-    opt = Adam(learning_rate=0.01)
-    model_new.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    if optimizer == "sgd":
+        opt = SGD(learning_rate=lr_sgd, momentum=momentum)
+    else:
+        opt = Adam(learning_rate=lr_adam)
+    model.compile(optimizer=opt, loss=loss, metrics=[metric])
 
     return model_new
