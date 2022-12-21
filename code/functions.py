@@ -13,7 +13,6 @@ from tensorflow.keras.utils import to_categorical
 
 def normalization(array):
     norm_arr = (array - np.nanmin(array))/(np.nanmax(array) - np.nanmin(array))
-
     return norm_arr
 
 
@@ -27,6 +26,7 @@ def load_brains(side, opt):
     image_path = opt["filepath"]["images"]
     vol_path = opt["filepath"]["volumes"]
     image_count = opt["scan"]["image_count"]
+    extra_count = opt["scan"]["extra_count"]
     use_hipp = opt["scan"]["use_hipp_vol"]
     use_icv = opt["scan"]["use_icv_adj_hipp"]
     use_asym = opt["scan"]["use_icv_adj_hipp"]
@@ -40,10 +40,9 @@ def load_brains(side, opt):
     a_ind = opt["scan"]["p_a_indices"][1]
     offset = opt["scan"]["slice_offset"]
 
-    extra = np.sum(np.array([use_hipp, use_icv, use_asym]))
-    total_slices = image_count + extra
+    total_slices = image_count + extra_count
 
-    filenames = np.empty(shape=(0, 1), dtype=str)
+    filenames = np.empty(shape=(0,), dtype=str)
     brains_comb = np.empty(shape=(0, w, total_slices, h))
     vol_vect = np.empty(shape=(0, 2))
 
@@ -51,39 +50,37 @@ def load_brains(side, opt):
         dir_path_full = image_path + side + "\\" + d
         print(dir_path_full)
 
-        filename = ""
-        num_files = 0
-        brains = np.zeros(shape=(num_files, w, total_slices, h))  # saves all the brains
-        vols = np.zeros(shape=(num_files, 2))
-
         for (root, dirs, files) in os.walk(dir_path_full):
             num_files = len(files)  # get number of files in the dir
+            brains = np.zeros(shape=(num_files, w, total_slices, h))  # saves all the brains
+            vols = np.zeros(shape=(num_files, 2))
+            filename = list()
 
             for i in range(num_files):
-                filename = files[i]
                 img = nib.load(dir_path_full + "\\" + files[i]).get_fdata()  # load the subject brain
                 brains[i, :, :image_count, :] = img[l_ind:r_ind, p_ind:a_ind:offset, i_ind:s_ind]
+                filename.append(files[i])
 
         brains[brains == 0] = np.nan
-        norm_brains = [normalization(i) for i in brains[:, :, :image_count, :]]
+        norm_brains = [normalization(i) for i in brains]
         norm_brains = np.array(norm_brains)
         norm_brains[np.isnan(norm_brains)] = 0
 
-        if extra > 0:
+        if extra_count > 0:
             # Load volumes
             file_path_vol = vol_path + side + "\\" + 'icv_vol_' + d + '.csv'
             print(file_path_vol)
 
-            df_vol = pd.read_csv(file_path_vol)
+            df_vol = pd.read_csv(file_path_vol, header=None)
             hipp_l = df_vol.iloc[:, 0]
             hipp_r = df_vol.iloc[:, 1]
             icv = df_vol.iloc[:, 2]
             asym = df_vol.iloc[:, 3]
-            s = image_count
 
             for i in range(num_files):
                 slice1 = np.full((w, h), hipp_l[i])
                 slice2 = np.full((w, h), hipp_r[i])
+                s = image_count
 
                 if use_hipp:
                     norm_brains[i, :, s, :] = slice1
@@ -105,11 +102,21 @@ def load_brains(side, opt):
                 vols[i, 0] = hipp_l[i]
                 vols[i, 1] = hipp_r[i]
 
-        filenames = np.concatenate((filenames, filename), axis=0)
-        brains_comb = np.concatenate((brains_comb, norm_brains), axis=0)
-        vol_vect = np.concatenate((vol_vect, vols), axis=0)
+        filenames = np.concatenate((filenames, filename))
+        brains_comb = np.concatenate((brains_comb, norm_brains))
+        vol_vect = np.concatenate((vol_vect, vols))
 
     return filenames, brains_comb, vol_vect
+
+
+def load_data(img_data, vol_data, names, opt):
+    for grp in opt["group"]["group_list"]:
+        filenames, img, vol = load_brains(grp, opt)
+        names.append(filenames)
+        img_data.append(img)
+        vol_data.append(vol)
+
+    return names, img_data, vol_data
 
 
 def load_img(images, side, opt, img_slice):
@@ -179,15 +186,16 @@ def load_dataset(data, opt):
         s += 1
 
     train_x, val_x, test_x = list(), list(), list()
-    train_x_img = np.empty(shape=(0, w, h))
-    val_x_img = np.empty(shape=(0, w, h))
-    test_x_img = np.empty(shape=(0, w, h))
     train_y_img = np.empty(shape=0)
     val_y_img = np.empty(shape=0)
     test_y_img = np.empty(shape=0)
+    count = 0
 
     for i in channel_vect:
-        count = 0
+        train_x_img = np.empty(shape=(0, w, h))
+        val_x_img = np.empty(shape=(0, w, h))
+        test_x_img = np.empty(shape=(0, w, h))
+
         for grp_num, grp_data in enumerate(data):
             train_x_grp, train_y_grp, val_x_grp, val_y_grp, test_x_grp, test_y_grp = load_img(grp_data, grp_num, opt, i)
 
@@ -196,9 +204,9 @@ def load_dataset(data, opt):
             test_x_img = np.concatenate((test_x_img, test_x_grp))
 
             if count == 0:
-                train_y_img = to_categorical(np.concatenate((train_y_img, train_y_grp)))
-                val_y_img = to_categorical(np.concatenate((val_y_img, val_y_grp)))
-                test_y_img = to_categorical(np.concatenate((test_y_img, test_y_grp)))
+                train_y_img = np.concatenate((train_y_img, train_y_grp))
+                val_y_img = np.concatenate((val_y_img, val_y_grp))
+                test_y_img = np.concatenate((test_y_img, test_y_grp))
 
         train_x.append(train_x_img)
         val_x.append(val_x_img)
@@ -208,8 +216,11 @@ def load_dataset(data, opt):
     train_x_final = np.stack(train_x, axis=3)
     val_x_final = np.stack(val_x, axis=3)
     test_x_final = np.stack(test_x, axis=3)
+    train_y = to_categorical(train_y_img)
+    val_y = to_categorical(val_y_img)
+    test_y = to_categorical(test_y_img)
 
-    return train_x_final, train_y_img, val_x_final, val_y_img, test_x_final, test_y_img
+    return train_x_final, train_y, val_x_final, val_y, test_x_final, test_y
 
 
 def load_value(data, side, opt):
@@ -391,7 +402,7 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
 
 
 def get_hm_by_diff_sbj(model_name, img_data, opt):
-    channels = opt["scan"]["total_slice_count"]
+    channels = opt["scan"]["image_count"] + opt["scan"]["extra_count"]
 
     # run_model(slice_start, channels, brainsL, brainsR)
     model_cnn = load_model(model_name)
@@ -425,25 +436,25 @@ def get_hm_by_diff_sbj(model_name, img_data, opt):
 
 
 def run_heatmap(img_data, slice_num, runs, exp_name, opt):
-    channels = opt["scan"]["total_slice_count"]
+    channels = opt["scan"]["image_count"] + opt["scan"]["extra_count"]
 
     heatmap = list()
-    for _, data in img_data:
+    for data in img_data:
         heatmap.append(np.empty(shape=(40, 40, data.shape[0], runs)))
 
     for i in range(runs):
         # Create model filename string
         print('Getting model heatmaps for %d of %d model runs' % (i + 1, runs))
-        model_name = "../models/three_models_at_once/slice_" + str(slice_num) + "_" + str(channels) + "_channels_run_" \
-                     + str(i) + ".h5"
+        model_name = opt["filepath"]["models"] + exp_name + "/slice_" + str(slice_num) + "_" + str(
+            channels) + "_channels_run_" + str(i) + ".h5"
 
         heatmaps = get_hm_by_diff_sbj(model_name, img_data, opt)
 
-        for grp, hm in heatmap:
-            hm[grp][:, :, :, i] = heatmaps[grp]
+        for grp, hm in enumerate(heatmap):
+            hm[:, :, :, i] = heatmaps[grp]
 
-    for grp, hm in heatmap:
-        heatmap_avg_model = np.mean(hm[grp], axis=3)
+    for grp, hm in enumerate(heatmap):
+        heatmap_avg_model = np.mean(hm, axis=3)
         heatmap_avg_sbj = np.mean(heatmap_avg_model, axis=2)
         heatmap_resize = cv2.resize(heatmap_avg_sbj, (opt["scan"]["size_w"], opt["scan"]["size_h"]),
                                     interpolation=cv2.INTER_CUBIC)

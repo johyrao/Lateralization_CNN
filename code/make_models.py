@@ -1,9 +1,8 @@
 import numpy as np
 from tensorflow.keras.models import Sequential, load_model, Model
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, BatchNormalization, GlobalAveragePooling2D, \
-    Dropout
-from tensorflow.keras.optimizers import SGD, Adam, schedules
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+    Dropout, Conv3D, MaxPooling3D
+from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras.applications import ResNet50V2
 from tensorflow.keras import regularizers, Input
 from sklearn.cross_decomposition import PLSRegression
@@ -99,6 +98,52 @@ def define_model_adam(channels, config):
     model.add(BatchNormalization(name='BN_2'))
     model.add(MaxPooling2D((2, 2)))
     model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
+    model.add(BatchNormalization(name='BN_3'))
+    model.add(Flatten())
+    model.add(Dense(2, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))
+
+    # compile model
+    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
+    opt = Adam(learning_rate=0.01)
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    return model
+
+
+def define_model_site(channels, config):
+    model = Sequential()
+    model.add(Conv2D(8, (3, 3), activation='relu', kernel_initializer='he_uniform',
+                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], channels),
+                     padding="same", name='conv_1'))
+    model.add(BatchNormalization(name='BN_1'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_2'))
+    model.add(BatchNormalization(name='BN_2'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
+    model.add(BatchNormalization(name='BN_3'))
+    model.add(Flatten())
+    model.add(Dense(6, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))
+
+    # compile model
+    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
+    opt = Adam(learning_rate=0.01)
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    return model
+
+
+def define_model_3d(depth, config):
+    model = Sequential()
+    model.add(Conv3D(8, (3, 3, 3), activation='relu', kernel_initializer='he_uniform',
+                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], depth),
+                     padding="same", name='conv_1'))
+    model.add(BatchNormalization(name='BN_1'))
+    model.add(MaxPooling3D((2, 2, 2)))
+    model.add(Conv3D(16, (3, 3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_2'))
+    model.add(BatchNormalization(name='BN_2'))
+    model.add(MaxPooling3D((2, 2, 2)))
+    model.add(Conv3D(32, (3, 3, 3), activation='relu', kernel_initializer='he_uniform', padding="same", name='conv_3'))
     model.add(BatchNormalization(name='BN_3'))
     model.add(Flatten())
     model.add(Dense(2, activation='softmax', kernel_regularizer=regularizers.l2(.0001), name='dense'))

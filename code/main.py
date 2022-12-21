@@ -2,11 +2,12 @@ import argparse
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
 import seaborn as sns
-from functions import load_opt, load_brains, load_dataset, load_regression_dataset, plot_model_stats, \
+from functions import load_opt, load_data, load_dataset, load_regression_dataset, plot_model_stats, \
     plot_training_stats, save_csv_file, run_heatmap
-from make_models import define_model_sgd, define_model_adam
+from make_models import define_model_sgd, define_model_adam, define_model_3d
 from sklearn import linear_model
 from sklearn.metrics import roc_curve, auc, confusion_matrix
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -18,7 +19,8 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
     run_rand = opt["model"]["random_CNN"]
     run_log = opt["model"]["logistic_regression"]
 
-    channels = opt["scan"]["total_slice_count"]
+    channels = opt["scan"]["image_count"] + opt["scan"]["extra_count"]
+    cnn_3d = opt["model"]["3D"]
     thresholds = np.arange(100) / 100
 
     scores_val = np.zeros(shape=(runs, thresholds.shape[0]))
@@ -56,7 +58,8 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
     for i in range(runs):
         print("Run %d of %d" % (i + 1, runs))
         acc_val, acc_test, acc_rand = list(), list(), list()
-        data_shuffle_classes, vol_shuffle_classes, test_ind_classes = list()
+        data_shuffle_classes, vol_shuffle_classes, test_ind_classes = list(), list(), list()
+
         for grp, data in enumerate(img_data):
             list_grp = np.random.permutation(data.shape[0])
             data_shuffle = data[list_grp]
@@ -74,7 +77,10 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
         print("Done loading slice")
 
         # define model
-        cnn_model = define_model_adam(channels, opt)
+        if cnn_3d:
+            cnn_model = define_model_3d(channels, opt)
+        else:
+            cnn_model = define_model_adam(channels, opt)
 
         # define early stop to stop after validation loss stop going down
         es = EarlyStopping(monitor='val_loss', mode='min', verbose=0, patience=15)
@@ -263,32 +269,41 @@ def train(exp_name, slice_num, img_data, vol_data, opt):
 
 
 def main():
-    print("hello world")
     parser = argparse.ArgumentParser(description="Run CNN", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("exp", help="Experiment name")
     parser.add_argument("slice", help="Which coronal slice to start input from")
     parser.add_argument("-d", "--density-plot", action="store_true", help="Plot density plots")
-    parser.add_argument("-h", "--heatmap", action="store_true", help="Plot heatmaps")
+    parser.add_argument("-m", "--heatmap", action="store_true", help="Plot heatmaps")
 
     args = vars(parser.parse_args())
     exp_name = args["exp"]
-    slice_num = args["slice"]
-    density_plot = args["density-plot"]
+    slice_num = int(args["slice"])
+    density_plot = args["density_plot"]
     get_heatmaps = args["heatmap"]
 
-    opt = load_opt("D:\\Lab\\Lateralization_CNN\\setting\\")
+    opt = load_opt("D:\\Lab\\Lateralization_CNN\\setting\\opts.json")
+    if os.path.exists(opt["filepath"]["figures"] + exp_name + "\\") or \
+            os.path.exists(opt["filepath"]["files"] + exp_name + "\\") or \
+            os.path.exists(opt["filepath"]["models"] + exp_name + "\\"):
+        print("Experiment name is taken. Rerun with new name")
+        exit()
+    if not os.path.exists(opt["filepath"]["figures"] + exp_name + "\\"):
+        os.mkdir(opt["filepath"]["figures"] + exp_name + "\\")
+    if not os.path.exists(opt["filepath"]["files"] + exp_name + "\\"):
+        os.mkdir(opt["filepath"]["files"] + exp_name + "\\")
+    if not os.path.exists(opt["filepath"]["models"] + exp_name + "\\"):
+        os.mkdir(opt["filepath"]["models"] + exp_name + "\\")
+
     run_rand = opt["model"]["random_CNN"]
     run_log = opt["model"]["logistic_regression"]
 
     # Store all the different groups as separate index
+    names = list()
     img_data = list()
     vol_data = list()
 
-    for grp in opt["group"]["group_list"]:
-        img, vol = load_brains(grp, opt)
-        img_data.append(img)
-        vol_data.append(vol)
+    names, img_data, vol_data = load_data(img_data, vol_data, names, opt)
 
     results, histories = train(exp_name, slice_num, img_data, vol_data, opt)
     print("Done training models")
@@ -297,7 +312,7 @@ def main():
     plot_model_stats(results, exp_name, opt)
 
     # Compare density plot of CNN and mean Rand and mean Log
-    sns.displot(results["test"][:, 49] * 100, kind="kde")
+    sns.displot(results["test"][:, 49] * 100, kind="kde", label="CNN")
     if run_rand:
         plt.axvline(np.mean(results["log"]) * 100, 0, 1, color="green", label="Log")
     if run_log:
