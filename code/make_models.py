@@ -154,3 +154,21 @@ def define_model_3d(depth, config):
     model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
 
     return model
+
+
+def define_model_new():
+    model = load_model("D:\\Lab\\CNN-Project\\models\\exp_6\\slice_84_7_channels_run_81.h5")
+
+    for layer in model.layers:
+        layer.trainable = False
+
+    x = model.layers[-2].output
+    x = Dense(6, activation="softmax")(x)
+    model_new = Model(inputs=model.input, outputs=x)
+
+    # compile model
+    # lr_schedule = schedules.ExponentialDecay(initial_learning_rate=0.01,decay_steps=1000,decay_rate=0.9)
+    opt = Adam(learning_rate=0.01)
+    model_new.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    return model_new
