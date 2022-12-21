@@ -136,7 +136,7 @@ def define_model_site(channels, config):
 def define_model_3d(depth, config):
     model = Sequential()
     model.add(Conv3D(8, (3, 3, 3), activation='relu', kernel_initializer='he_uniform',
-                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], depth),
+                     input_shape=(config["scan"]["size_w"], config["scan"]["size_h"], depth, 1),
                      padding="same", name='conv_1'))
     model.add(BatchNormalization(name='BN_1'))
     model.add(MaxPooling3D((2, 2, 2)))
