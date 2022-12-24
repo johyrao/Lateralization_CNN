@@ -70,7 +70,7 @@ def define_model(channels, config):
     layers = config["hyperparameter"]["layers"]
     optimizer = config["hyperparameter"]["optimizer"]
     loss = config["hyperparameter"]["loss"]
-    metric = config["hyperparameter"]["accuracy"]
+    metric = config["hyperparameter"]["metric"]
     activation = config["hyperparameter"]["activation"]
     activation_dense = config["hyperparameter"]["activation_dense"]
     kernel_init = config["hyperparameter"]["kernel_initializer"]
@@ -84,13 +84,15 @@ def define_model(channels, config):
     momentum = config["hyperparameter"]["momentum"]
     w = config["scan"]["size_w"]
     h = config["scan"]["size_h"]
+    print(pool_size)
 
     model = Sequential()
 
     for i in range(layers):
-        filters = filter_init * i
+        filters = 2 ** (filter_init + i)
         conv_name = "conv_" + str(i + 1)
         bn_name = "BN_" + str(i + 1)
+        mp_name = "MaxPool_" + str(i + 1)
 
         model.add(Conv2D(filters,
                          (filter_size, filter_size),
@@ -102,14 +104,14 @@ def define_model(channels, config):
         model.add(BatchNormalization(name=bn_name))
 
         if i < (layers - 1):
-            model.add(MaxPool2D((pool_size, pool_size)))
+            model.add(MaxPool2D((2, 2), name=mp_name))
         else:
-            model.add(Flatten())
+            model.add(Flatten(name="Flatten"))
 
     model.add(Dense(classes,
                     activation=activation_dense,
                     kernel_regularizer=regularizers.l2(l2),
-                    name='dense'))
+                    name='Dense'))
 
     # compile model
     if optimizer == "sgd":
@@ -126,7 +128,7 @@ def define_model_3d(depth, config):
     layers = config["hyperparameter"]["layers"]
     optimizer = config["hyperparameter"]["optimizer"]
     loss = config["hyperparameter"]["loss"]
-    metric = config["hyperparameter"]["accuracy"]
+    metric = config["hyperparameter"]["metric"]
     activation = config["hyperparameter"]["activation"]
     activation_dense = config["hyperparameter"]["activation_dense"]
     kernel_init = config["hyperparameter"]["kernel_initializer"]
@@ -144,9 +146,10 @@ def define_model_3d(depth, config):
     model = Sequential()
 
     for i in range(layers):
-        filters = filter_init * i
+        filters = 2 ** (filter_init + i)
         conv_name = "conv_" + str(i + 1)
         bn_name = "BN_" + str(i + 1)
+        mp_name = "MaxPool_" + str(i + 1)
 
         model.add(Conv3D(filters,
                          (filter_size, filter_size, filter_size),
@@ -158,14 +161,14 @@ def define_model_3d(depth, config):
         model.add(BatchNormalization(name=bn_name))
 
         if i < (layers - 1):
-            model.add(MaxPool3D((pool_size, pool_size, pool_size)))
+            model.add(MaxPool3D((pool_size, pool_size, pool_size), name=mp_name))
         else:
-            model.add(Flatten())
+            model.add(Flatten(name="Flatten"))
 
     model.add(Dense(classes,
                     activation=activation_dense,
                     kernel_regularizer=regularizers.l2(l2),
-                    name='dense'))
+                    name='Dense'))
 
     # compile model
     if optimizer == "sgd":
