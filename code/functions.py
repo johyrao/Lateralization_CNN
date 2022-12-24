@@ -22,7 +22,7 @@ def load_opt(filepath):
 
 
 def load_brains(side, opt):
-    dir_list = opt["sites"]["site_list"]
+    dir_list = opt["list"]["site"]
     image_path = opt["filepath"]["images"]
     vol_path = opt["filepath"]["volumes"]
     image_count = opt["scan"]["image_count"]
@@ -110,7 +110,7 @@ def load_brains(side, opt):
 
 
 def load_data(img_data, vol_data, names, opt):
-    for grp in opt["group"]["group_list"]:
+    for grp in opt["list"]["class"]:
         filenames, img, vol = load_brains(grp, opt)
         names.append(filenames)
         img_data.append(img)
@@ -123,8 +123,8 @@ def load_img(images, side, opt, img_slice):
     w = opt["scan"]["size_w"]
     h = opt["scan"]["size_h"]
 
-    val_ct = math.floor(images.shape[0] * opt["split"]["val"])
-    test_ct = math.ceil(images.shape[0] * opt["split"]["test"])
+    val_ct = math.floor(images.shape[0] * opt["training"]["val"])
+    test_ct = math.ceil(images.shape[0] * opt["training"]["test"])
     train_ct = images.shape[0] - val_ct - test_ct
     pretest_ct = train_ct + val_ct
 
@@ -224,8 +224,8 @@ def load_dataset(data, opt):
 
 
 def load_value(data, side, opt):
-    val_ct = math.floor(data.shape[0] * opt["split"]["val"])
-    test_ct = math.ceil(data.shape[0] * opt["split"]["test"])
+    val_ct = math.floor(data.shape[0] * opt["training"]["val"])
+    test_ct = math.ceil(data.shape[0] * opt["training"]["test"])
     train_ct = data.shape[0] - val_ct - test_ct
     pretest_ct = train_ct + val_ct
 

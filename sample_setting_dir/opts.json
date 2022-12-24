@@ -3,26 +3,60 @@
     "data": "path_to_dir",
     "output": "path_to_dir",
     "code": "path_to_dir",
+    "setting": "path_to_dir",
     "images": "path_to_dir",
     "volumes": "path_to_dir",
     "figures": "path_to_dir",
+    "files": "path_to_dir",
     "models": "path_to_dir"
   },
-  "scan": {
-    "size_w": 160,
-    "size_h": 160,
-    "l_r_indices": [0, 160],
-    "p_a_indices": [0, 15],
-    "i_s_indices": [0, 160],
-    "slice_offset": 3,
-    "image_count": 5,
-    "use_hipp_vol": true,
-    "use_icv_adj_hipp": true,
-    "use_asym": true
+  "list": {
+    "site": ["site_1", "site_2", "site_3"],
+    "class": ["class_1", "class_2"]
   },
-  "split": {
-    "train": 0.7,
-    "val": 0.2,
-    "test": 0.1
+  "scan": {
+    "size_w": 1,
+    "size_h": 1,
+    "l_r_indices": [0, 1],
+    "p_a_indices": [0, 1],
+    "i_s_indices": [0, 1],
+    "slice_offset": 1,
+    "image_count": 1,
+    "extra_count": 0,
+    "use_hipp_vol": false,
+    "use_icv_adj_hipp": false,
+    "use_asym": false
+  },
+  "training": {
+    "runs": 1,
+    "train": 1,
+    "val": 0,
+    "test": 0
+  },
+  "model": {
+    "CNN": false,
+    "3D": false,
+    "logistic_regression": false,
+    "random_CNN": false,
+    "random_logistic": false,
+    "ensemble": false
+  },
+  "hyperparameter": {
+    "optimizer": "optimizer name",
+    "classes": 2,
+    "layers": 1,
+    "activation": "activation function",
+    "activation_dense": "activation function for dense layer",
+    "kernel_initializer": "kernel initializer",
+    "loss": "loss function",
+    "metric": "metric for calculating loss",
+    "filter_init": 1,
+    "filter_size": 1,
+    "pool_size": 1,
+    "padding": "padding setting",
+    "l2": 1,
+    "lr_sgd": 1,
+    "lr_adam": 1,
+    "momentum": 1
   }
 }
