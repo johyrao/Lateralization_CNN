@@ -273,16 +273,18 @@ def main():
 
     parser.add_argument("exp", help="Experiment name")
     parser.add_argument("slice", help="Which coronal slice to start input from")
+    parser.add_argument("config", help="Location of the config file")
     parser.add_argument("-d", "--density-plot", action="store_true", help="Plot density plots")
     parser.add_argument("-m", "--heatmap", action="store_true", help="Plot heatmaps")
 
     args = vars(parser.parse_args())
     exp_name = args["exp"]
     slice_num = int(args["slice"])
+    opt_path = args["config"]
     density_plot = args["density_plot"]
     get_heatmaps = args["heatmap"]
 
-    opt = load_opt("D:\\Lab\\Lateralization_CNN\\setting\\opts.json")
+    opt = load_opt(opt_path)
     if os.path.exists(opt["filepath"]["figures"] + exp_name + "\\") or \
             os.path.exists(opt["filepath"]["files"] + exp_name + "\\") or \
             os.path.exists(opt["filepath"]["models"] + exp_name + "\\"):
